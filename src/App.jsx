@@ -109,13 +109,12 @@ const generateSessionCSV = (session) => {
 };
 
 const generateStatsCSV = (history) => {
-    // NIEUWE HEADERS MET LOGISCHE VOLGORDE INCLUSIEF ANALYSE
     const headers = [
         'Datum', 'Hydratatie (%)', 'Inoculatie (%)', 'Temp (°C)', 
         'Starter Leeftijd (min)', 'Autolyse (min)', 'Stretch & Folds', 'Coil Folds', 
         'Bulkrijs (min)', 'Cold Proof (min)', 'Room Proof (min)', 
-        'Beoordeling (1-10)', // Score
-        'Starter Toename', 'Bulk Toename', 'Deeg Gevoel', 'Ovenspring', 'Oor', 'Crumb', 'Korst' // Analyse
+        'Beoordeling (1-10)', 
+        'Starter Toename', 'Bulk Toename', 'Deeg Gevoel', 'Ovenspring', 'Oor', 'Crumb', 'Korst'
     ];
 
     const rows = history.map(h => {
@@ -137,7 +136,6 @@ const generateStatsCSV = (history) => {
             getDurationBetween(logs, 'Cold Proof Start', 'Oven In'),
             getDurationBetween(logs, 'Room Proof Start', 'Oven In'),
             analysis.rating || '',
-            // ANALYSE DATA
             analysis.starterRise || '',
             analysis.bulkRise || '',
             analysis.doughResult || '',
@@ -350,6 +348,9 @@ const PhaseTracker = ({ logs, activeTimer, onUndo, onAddNote }) => {
 
   if (!lastAction) return null;
   const notesCount = lastAction.notes ? lastAction.notes.length : 0;
+  
+  // FIX: Als laatste actie Coil Fold is, toon "Bulkrijs" als fase naam
+  const displayPhase = lastAction.action.includes('Coil Fold') ? 'Bulkrijs' : lastAction.action;
 
   return (
     <div className="bg-stone-800 text-white p-4 rounded-xl shadow-lg mb-6 border border-stone-700">
@@ -357,7 +358,7 @@ const PhaseTracker = ({ logs, activeTimer, onUndo, onAddNote }) => {
         <div>
            <div className="text-[10px] text-stone-400 uppercase tracking-wide mb-1">Huidige Fase</div>
            <div className="font-bold text-xl flex items-center gap-2 text-amber-500">
-             {lastAction.action}
+             {displayPhase}
            </div>
         </div>
         <div className="text-right">
@@ -838,19 +839,27 @@ export default function App() {
               <div key={idx} className={`relative group snap-start flex-shrink-0 transition-transform ${editingPresetIndex === idx ? 'ring-2 ring-amber-500 rounded-lg scale-[0.98]' : ''}`}>
                   <button 
                     onClick={() => loadPreset(preset.config, preset.name, idx, false)} 
-                    className="bg-white border border-stone-200 rounded-lg p-3 min-w-[140px] text-left shadow-sm hover:border-amber-400 focus:ring-2 focus:ring-amber-500"
+                    // FIX: pr-20 (extra veel) zodat tekst zeker niet achter icoontjes verdwijnt. z-0 zorgt dat hij onder de icoontjes ligt.
+                    className="bg-white border border-stone-200 rounded-lg p-3 pr-20 relative z-0 min-w-[140px] text-left shadow-sm hover:border-amber-400 focus:ring-2 focus:ring-amber-500"
                   >
-                    <div className="font-bold text-stone-700 text-sm truncate pr-4">{preset.name}</div>
+                    <div className="font-bold text-stone-700 text-sm truncate">{preset.name}</div>
                     <div className="text-[10px] text-stone-400 mt-1">
                       {preset.config.targetWeight}g • {preset.config.hydration}% hydro
                     </div>
                   </button>
-                  <div className="absolute top-1 right-1 flex gap-1">
-                      <button onClick={(e) => { e.stopPropagation(); loadPreset(preset.config, preset.name, idx, true); }} className="text-stone-300 hover:text-amber-500 p-1 bg-white/80 rounded-full">
-                        <Edit3 className="w-3 h-3" />
+                  {/* FIX: Knoppen groter gemaakt (p-2), Z-index verhoogd (z-20) en klik events beter afgeschermd */}
+                  <div className="absolute top-1 right-1 flex gap-2 z-20">
+                      <button 
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); loadPreset(preset.config, preset.name, idx, true); }} 
+                        className="text-stone-400 hover:text-amber-500 p-2 bg-white border border-stone-200 shadow-md rounded-full transition-colors"
+                      >
+                        <Edit3 className="w-4 h-4" />
                       </button>
-                      <button onClick={(e) => deletePreset(e, idx)} className="text-stone-300 hover:text-red-400 p-1 bg-white/80 rounded-full">
-                        <X className="w-3 h-3" />
+                      <button 
+                        onClick={(e) => { e.preventDefault(); deletePreset(e, idx); }} 
+                        className="text-stone-400 hover:text-red-500 p-2 bg-white border border-stone-200 shadow-md rounded-full transition-colors"
+                      >
+                        <X className="w-4 h-4" />
                       </button>
                   </div>
               </div>
@@ -987,6 +996,9 @@ export default function App() {
     const remainingHours = Math.floor(remainingMinutesTotal / 60);
     const remainingMinutes = remainingMinutesTotal % 60;
     const remainingTimeText = `${remainingHours}u ${remainingMinutes}m`;
+    
+    // Check of bulkrijs klaar is om balk te verbergen
+    const isBulkFinished = bulkData && bulkData.isFinished;
 
     return (
       <div className="pb-32 p-4 max-w-md mx-auto space-y-6">
@@ -1013,22 +1025,25 @@ export default function App() {
              onAddNote={openNoteModal}
            />
 
-           <div className="bg-stone-50 rounded-lg p-3 border border-stone-100">
-              <div className="flex justify-between items-center mb-2">
-                 <span className="text-xs font-bold text-stone-500 uppercase flex items-center gap-1"><Hourglass className="w-3 h-3"/> Totale Bulkrijs</span>
-                 <span className="text-xs font-mono font-bold text-stone-700">{bulkData ? bulkData.text : "0u 00m"} / ~{Math.floor(estimatedMinutes/60)}u {estimatedMinutes%60}m</span>
-              </div>
-              <div className="h-2 w-full bg-stone-200 rounded-full overflow-hidden mb-1">
-                 <div className="h-full bg-amber-500 transition-all duration-1000" style={{ width: `${progressPerc}%` }}></div>
-              </div>
-              <div className="text-xs font-bold text-stone-700 flex justify-between">
-                <span>Nog te gaan:</span>
-                <span className="font-mono text-lg text-amber-600">{remainingTimeText}</span>
-              </div>
-              <div className="mt-1 text-[10px] text-stone-400 text-right">
-                {history.length < 3 ? "Schatting o.b.v. theorie" : "Schatting o.b.v. jouw historie"}
-              </div>
-           </div>
+           {/* FIX: Alleen tonen als bulk nog NIET klaar is */}
+           {!isBulkFinished && (
+               <div className="bg-stone-50 rounded-lg p-3 border border-stone-100">
+                  <div className="flex justify-between items-center mb-2">
+                     <span className="text-xs font-bold text-stone-500 uppercase flex items-center gap-1"><Hourglass className="w-3 h-3"/> Totale Bulkrijs</span>
+                     <span className="text-xs font-mono font-bold text-stone-700">{bulkData ? bulkData.text : "0u 00m"} / ~{Math.floor(estimatedMinutes/60)}u {estimatedMinutes%60}m</span>
+                  </div>
+                  <div className="h-2 w-full bg-stone-200 rounded-full overflow-hidden mb-1">
+                     <div className="h-full bg-amber-500 transition-all duration-1000" style={{ width: `${progressPerc}%` }}></div>
+                  </div>
+                  <div className="text-xs font-bold text-stone-700 flex justify-between">
+                    <span>Nog te gaan:</span>
+                    <span className="font-mono text-lg text-amber-600">{remainingTimeText}</span>
+                  </div>
+                  <div className="mt-1 text-[10px] text-stone-400 text-right">
+                    {history.length < 3 ? "Schatting o.b.v. theorie" : "Schatting o.b.v. jouw historie"}
+                  </div>
+               </div>
+           )}
            
            <CollapsibleRecipe recipe={recipe} config={activeSession.configSnapshot || config} />
 
@@ -1266,7 +1281,8 @@ export default function App() {
     } : null;
 
     return (
-        <div className="pb-32 p-4 mx-auto w-full overflow-x-auto">
+        // FIX: max-w-full en overflow settings verbeterd voor mobiel
+        <div className="pb-32 p-4 mx-auto w-full max-w-[100vw] overflow-hidden">
              <div className="flex justify-between items-center mb-4 sticky left-0">
                 <h2 className="text-xl font-bold text-stone-800 flex items-center gap-2"><BarChart3 className="w-5 h-5 text-amber-600" /> Analyse</h2>
                 <button onClick={() => generateStatsCSV(history)} className="flex items-center gap-1 text-xs font-bold bg-green-100 text-green-700 px-3 py-2 rounded-full hover:bg-green-200 transition-colors">
@@ -1274,8 +1290,8 @@ export default function App() {
                  </button>
              </div>
              
-             <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden">
-                <table className="w-full text-xs text-left">
+             <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-x-auto">
+                <table className="w-full text-xs text-left whitespace-nowrap">
                     <thead className="bg-stone-100 text-stone-600 font-bold border-b">
                         <tr>
                             <th className="p-3 sticky left-0 bg-stone-100 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Datum</th>
@@ -1358,7 +1374,7 @@ export default function App() {
   const renderReport = () => {
     if (!viewingSession) return null; // Safety check
     
-    const reportConfig = viewingSession.configSnapshot;
+    const reportConfig = viewingSession.configSnapshot || {};
     const reportRecipe = calculateRecipe(reportConfig);
     const finalBulk = calculateBulkTime(viewingSession.logs, viewingSession.endTime);
     const sortedLogs = [...viewingSession.logs].filter(l => l.type !== 'system' && l.type !== 'note').sort((a,b) => new Date(a.time)-new Date(b.time));
