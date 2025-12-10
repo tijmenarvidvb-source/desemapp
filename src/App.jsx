@@ -410,7 +410,11 @@ export default function App() {
 
   const [editingPresetIndex, setEditingPresetIndex] = useState(null);
   const [showConfig, setShowConfig] = useState(false);
-  const [activeRecipeName, setActiveRecipeName] = useState("Mijn Desem");
+  
+  // FIX: Laad naam uit localStorage zodat deze niet reset bij refresh
+  const [activeRecipeName, setActiveRecipeName] = useState(() => {
+     return localStorage.getItem('desem_active_recipe_name') || "Mijn Desem";
+  });
 
   const [config, setConfig] = useState(() => {
     const savedConfig = localStorage.getItem('desem_default_config');
@@ -455,16 +459,15 @@ export default function App() {
     }
   }, [activeSession]);
 
+  // Save config & Active Name
   useEffect(() => {
     localStorage.setItem('desem_default_config', JSON.stringify(config));
-  }, [config]);
+    localStorage.setItem('desem_active_recipe_name', activeRecipeName);
+  }, [config, activeRecipeName]);
 
   // Handlers
   const handleNavClick = (targetView) => {
-    // Waarschuwing als sessie loopt en we naar Recept of Logboek gaan
-    if (activeSession && activeSession.status === 'active' && (targetView === 'setup' || targetView === 'history')) {
-        if (!confirm("Actieve sessie loopt nog. Weet je zeker dat je wilt wisselen?")) return;
-    }
+    // FIX: Waarschuwing verwijderd. Je kunt nu vrij wisselen.
     setView(targetView);
   };
 
@@ -836,18 +839,20 @@ export default function App() {
           <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2 pl-1">Opgeslagen Recepten</h3>
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide snap-x">
             {[...presets].reverse().map((preset, idx) => ( 
-              <div key={idx} className={`relative group snap-start flex-shrink-0 transition-transform ${editingPresetIndex === idx ? 'ring-2 ring-amber-500 rounded-lg scale-[0.98]' : ''}`}>
+              <div key={idx} className={`relative group snap-start flex-shrink-0 transition-transform ${editingPresetIndex === idx ? 'scale-[0.98]' : ''}`}>
                   <button 
                     onClick={() => loadPreset(preset.config, preset.name, idx, false)} 
-                    // FIX: pr-20 (extra veel) zodat tekst zeker niet achter icoontjes verdwijnt. z-0 zorgt dat hij onder de icoontjes ligt.
-                    className="bg-white border border-stone-200 rounded-lg p-3 pr-20 relative z-0 min-w-[140px] text-left shadow-sm hover:border-amber-400 focus:ring-2 focus:ring-amber-500"
+                    // FIX: Actieve recept krijgt nu duidelijke oranje border en achtergrond
+                    className={`
+                       rounded-lg p-3 pr-20 relative z-0 min-w-[140px] text-left shadow-sm focus:ring-2 focus:ring-amber-500 transition-all border
+                       ${activeRecipeName === preset.name ? 'bg-amber-50 border-amber-500 ring-1 ring-amber-500' : 'bg-white border-stone-200 hover:border-amber-400'}
+                    `}
                   >
-                    <div className="font-bold text-stone-700 text-sm truncate">{preset.name}</div>
-                    <div className="text-[10px] text-stone-400 mt-1">
+                    <div className={`font-bold text-sm truncate ${activeRecipeName === preset.name ? 'text-amber-900' : 'text-stone-700'}`}>{preset.name}</div>
+                    <div className={`text-[10px] mt-1 ${activeRecipeName === preset.name ? 'text-amber-700' : 'text-stone-400'}`}>
                       {preset.config.targetWeight}g • {preset.config.hydration}% hydro
                     </div>
                   </button>
-                  {/* FIX: Knoppen groter gemaakt (p-2), Z-index verhoogd (z-20) en klik events beter afgeschermd */}
                   <div className="absolute top-1 right-1 flex gap-2 z-20">
                       <button 
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); loadPreset(preset.config, preset.name, idx, true); }} 
@@ -973,9 +978,15 @@ export default function App() {
             </div>
         )}
 
-        <button onClick={handleStartSession} disabled={totalPerc !== 100} className={`w-full font-bold text-lg py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 ${totalPerc !== 100 ? 'bg-stone-300 text-stone-500 cursor-not-allowed' : 'bg-amber-600 text-white hover:bg-amber-700'}`}>
-           {totalPerc !== 100 ? 'Check Percentages!' : <><Play className="w-6 h-6 fill-current" /> Meng Starter & Start Sessie</>}
-        </button>
+        <div>
+            {/* FIX: Duidelijke indicatie welk recept je gaat starten */}
+            <div className="text-center mb-2 text-xs text-stone-400 uppercase tracking-wide">
+                 Je gaat maken: <span className="font-bold text-amber-700">{activeRecipeName}</span>
+            </div>
+            <button onClick={handleStartSession} disabled={totalPerc !== 100} className={`w-full font-bold text-lg py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 ${totalPerc !== 100 ? 'bg-stone-300 text-stone-500 cursor-not-allowed' : 'bg-amber-600 text-white hover:bg-amber-700'}`}>
+               {totalPerc !== 100 ? 'Check Percentages!' : <><Play className="w-6 h-6 fill-current" /> Meng Starter & Start Sessie</>}
+            </button>
+        </div>
       </div>
     );
   };
