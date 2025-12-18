@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Play, Clock, ChevronRight, ChevronLeft, FileText, Timer, RotateCcw, Settings, Calculator, Camera, Image as ImageIcon, Calendar, Wand2, Archive, Save, Thermometer, Trash2, Hourglass, LayoutDashboard, BookOpen, Plus, X, AlertTriangle, StopCircle, Undo, ArrowRight, ArrowLeft, CheckCircle2, StickyNote, Tag, Printer, FileSpreadsheet, Edit3, Snowflake, Sun, ChevronDown, ChevronUp, BarChart3, ClipboardList, ThumbsUp } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Clock, ChevronRight, ChevronLeft, FileText, Timer, RotateCcw, Settings, Calculator, Camera, Image as ImageIcon, Calendar, Wand2, Archive, Save, Thermometer, Trash2, Hourglass, LayoutDashboard, BookOpen, Plus, X, AlertTriangle, StopCircle, Undo, ArrowRight, ArrowLeft, CheckCircle2, StickyNote, Tag, Printer, FileSpreadsheet, Edit3, Snowflake, Sun, ChevronDown, ChevronUp, BarChart3, ClipboardList, ThumbsUp, Download, Upload, Keyboard, MessageSquare, RefreshCw, Check } from 'lucide-react';
 
 // --- HULP FUNCTIES ---
 
@@ -20,8 +20,7 @@ const getDuration = (start, end) => {
   const diff = new Date(end) - new Date(start);
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  if (hours > 0) return `${hours}u ${minutes}m`;
-  return `${minutes}m`;
+  return `${hours}u ${minutes.toString().padStart(2, '0')}m`;
 };
 
 const getMinutesDiff = (start, end) => {
@@ -29,8 +28,15 @@ const getMinutesDiff = (start, end) => {
   return Math.floor((new Date(end) - new Date(start)) / (1000 * 60));
 };
 
+const formatDurationHM = (minutes) => {
+    if (!minutes && minutes !== 0) return '-';
+    const h = Math.floor(minutes / 60);
+    const m = Math.floor(minutes % 60);
+    return `${h}u ${m.toString().padStart(2,'0')}m`;
+};
+
 const calculateBulkTime = (logs, currentTime = new Date()) => {
-  const startLog = logs.find(l => l.action === 'Mixen Compleet');
+  const startLog = logs.find(l => l.action === 'Mixen & Kneden' || l.action === 'Mixen Compleet');
   if (!startLog) return null;
 
   const endLog = logs.find(l => ['Preshape', 'Final Shape', 'Cold Proof Start', 'Room Proof Start'].includes(l.action));
@@ -74,6 +80,18 @@ const estimateBulkRiseDuration = (temp, inoculation, history) => {
   return Math.round(theoreticalMinutes);
 };
 
+const exportData = (history, presets, config) => {
+    const data = { history, presets, config, exportDate: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `desem_backup_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
 const generateSessionCSV = (session) => {
     if (!session) return;
     const config = session.configSnapshot || {};
@@ -82,15 +100,20 @@ const generateSessionCSV = (session) => {
     let csv = `Recept,${session.name}\nDatum,${new Date(session.startTime).toLocaleDateString()}\n`;
     csv += `Eindcijfer,${analysis.rating || '-'}\n\n`;
 
+    // Algemene notities toevoegen aan CSV
+    if (session.generalNotes && session.generalNotes.length > 0) {
+        csv += `Algemene Notities,"${session.generalNotes.join('; ')}"\n\n`;
+    }
+
     csv += `Tijd,Actie,Notities\n`;
     session.logs.forEach(log => {
         csv += `${new Date(log.time).toLocaleTimeString()},${log.action},"${(log.notes || []).join('; ')}"\n`;
     });
     
-    csv += `\n--- Evaluatie ---\n`;
-    csv += `Starter Rijstijd,${getDurationBetween(session.logs, 'Starter Gevoed', 'Mixen Compleet')}m\n`;
+    csv += `\n--- Evaluatie (Tijden in u:mm) ---\n`;
+    csv += `Starter Rijstijd,${formatDurationHM(getDurationBetween(session.logs, 'Starter Gevoed', 'Mixen & Kneden'))}\n`;
     csv += `Starter Toename,${analysis.starterRise || '-'}\n`;
-    csv += `Bulkrijs Duur,${calculateBulkTime(session.logs, session.endTime)?.minutes || 0}m\n`;
+    csv += `Bulkrijs Duur,${formatDurationHM(calculateBulkTime(session.logs, session.endTime)?.minutes || 0)}\n`;
     csv += `Bulk Toename,${analysis.bulkRise || '-'}\n`;
     csv += `Deeg Gevoel,${analysis.doughResult || '-'}\n`;
     csv += `Ovenspring,${analysis.ovenSpring || '-'}\n`;
@@ -111,8 +134,8 @@ const generateSessionCSV = (session) => {
 const generateStatsCSV = (history) => {
     const headers = [
         'Datum', 'Hydratatie (%)', 'Inoculatie (%)', 'Temp (°C)', 
-        'Starter Leeftijd (min)', 'Autolyse (min)', 'Stretch & Folds', 'Coil Folds', 
-        'Bulkrijs (min)', 'Cold Proof (min)', 'Room Proof (min)', 
+        'Starter Leeftijd', 'Autolyse', 'Stretch & Folds', 'Coil Folds', 
+        'Bulkrijs', 'Cold Proof', 'Room Proof', 
         'Beoordeling (1-10)', 
         'Starter Toename', 'Bulk Toename', 'Deeg Gevoel', 'Ovenspring', 'Oor', 'Crumb', 'Korst'
     ];
@@ -128,13 +151,13 @@ const generateStatsCSV = (history) => {
             config.hydration || '',
             config.inoculation || '',
             h.temperature || '',
-            getDurationBetween(logs, 'Starter Gevoed', 'Mixen Compleet'),
-            getDurationBetween(logs, 'Autolyse Start', 'Mixen Compleet'),
+            formatDurationHM(getDurationBetween(logs, 'Starter Gevoed', 'Mixen & Kneden')),
+            formatDurationHM(getDurationBetween(logs, 'Autolyse Start', 'Mixen & Kneden')),
             getLogCount(logs, 'Stretch & Fold'),
             getLogCount(logs, 'Coil Fold'),
-            bulk ? bulk.minutes : 0,
-            getDurationBetween(logs, 'Cold Proof Start', 'Oven In'),
-            getDurationBetween(logs, 'Room Proof Start', 'Oven In'),
+            bulk ? formatDurationHM(bulk.minutes) : '0u 00m',
+            formatDurationHM(getDurationBetween(logs, 'Cold Proof Start', 'Oven In')),
+            formatDurationHM(getDurationBetween(logs, 'Room Proof Start', 'Oven In')),
             analysis.rating || '',
             analysis.starterRise || '',
             analysis.bulkRise || '',
@@ -157,7 +180,7 @@ const generateStatsCSV = (history) => {
     document.body.removeChild(link);
 };
 
-const INSTANT_ACTIONS = ['Starter Gevoed', 'In Koelkast', 'Oven In', 'Sessie Gestart', 'Cold Proof Start'];
+const INSTANT_ACTIONS = ['Starter Gevoed', 'In Koelkast', 'Oven In', 'Sessie Gestart', 'Cold Proof Start', 'Coil Fold', 'In Koelkast (Pauze)'];
 
 const TAGS = [
   "Plakkerig", "Rijst snel", "Rijst traag", "Slap deeg", 
@@ -221,10 +244,48 @@ const PhaseTimeline = ({ logs }) => {
   );
 };
 
+const StarterTracker = ({ logs }) => {
+    const starterLog = logs.find(l => l.action === 'Starter Gevoed');
+    const [age, setAge] = useState({ text: '', minutes: 0 });
+
+    useEffect(() => {
+        if (!starterLog) return;
+        const tick = () => {
+            const start = new Date(starterLog.time);
+            const now = new Date();
+            const diff = now - start;
+            const m = Math.floor(diff / 1000 / 60);
+            const h = Math.floor(m / 60);
+            const min = m % 60;
+            setAge({ text: `${h}u ${min}m`, minutes: m });
+        };
+        tick();
+        const interval = setInterval(tick, 60000);
+        return () => clearInterval(interval);
+    }, [starterLog]);
+
+    if (!starterLog) return null;
+
+    let colorClass = "bg-blue-100 text-blue-700 border-blue-200"; // Jong < 4u
+    if (age.minutes >= 240 && age.minutes <= 480) colorClass = "bg-green-100 text-green-700 border-green-200"; // Peak 4-8u
+    if (age.minutes > 480) colorClass = "bg-red-50 text-red-700 border-red-200"; // Oud > 8u
+
+    return (
+        <div className={`flex items-center justify-between p-3 rounded-lg border mb-3 ${colorClass}`}>
+            <div className="flex items-center gap-2">
+                <Thermometer className="w-4 h-4"/>
+                <span className="text-xs font-bold uppercase tracking-wide">Starter Leeftijd</span>
+            </div>
+            <span className="font-mono font-bold text-lg">{age.text}</span>
+        </div>
+    );
+};
+
 const ActionButton = ({ label, icon, onClick, subtext, activeTimer, onStopTimer }) => {
   const isRunning = activeTimer?.action === label || (label === 'Stretch & Fold' && activeTimer?.action?.startsWith('Stretch & Fold'));
   const [timeLeft, setTimeLeft] = useState('');
   const [isOvertime, setIsOvertime] = useState(false);
+  const [flash, setFlash] = useState(false); // Voor visuele feedback
   
   useEffect(() => {
     if (!isRunning || !activeTimer) return;
@@ -234,14 +295,18 @@ const ActionButton = ({ label, icon, onClick, subtext, activeTimer, onStopTimer 
       if (diff <= 0) {
         setIsOvertime(true);
         const overDiff = Math.abs(diff);
-        const m = Math.floor((overDiff / 1000 / 60));
+        const h = Math.floor(overDiff / 1000 / 60 / 60);
+        const m = Math.floor((overDiff / 1000 / 60) % 60);
         const s = Math.floor((overDiff / 1000) % 60);
-        setTimeLeft(`+ ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+        // TIMER IN UREN EN MINUTEN
+        setTimeLeft(`+ ${h > 0 ? h+':' : ''}${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
       } else {
         setIsOvertime(false);
-        const m = Math.floor((diff / 1000 / 60));
+        const h = Math.floor(diff / 1000 / 60 / 60);
+        const m = Math.floor((diff / 1000 / 60) % 60);
         const s = Math.floor((diff / 1000) % 60);
-        setTimeLeft(`${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+        // TIMER IN UREN EN MINUTEN
+        setTimeLeft(`${h > 0 ? h+':' : ''}${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
       }
     };
     tick();
@@ -250,13 +315,20 @@ const ActionButton = ({ label, icon, onClick, subtext, activeTimer, onStopTimer 
   }, [isRunning, activeTimer]);
 
   const handleClick = () => {
-    if (isRunning) { onStopTimer(); } else { onClick(); }
+    if (isRunning) { 
+        onStopTimer(); 
+    } else { 
+        setFlash(true);
+        setTimeout(() => setFlash(false), 500);
+        onClick(); 
+    }
   };
 
   return (
     <button 
       onClick={handleClick}
       className={`border-2 p-3 rounded-xl flex flex-col items-center justify-center gap-1 shadow-sm transition-all h-28 w-full relative overflow-hidden
+        ${flash ? 'bg-green-100 border-green-500 scale-95' : ''}
         ${isRunning 
           ? isOvertime 
             ? 'bg-red-50 border-red-500 text-red-700 shadow-inner' 
@@ -397,10 +469,13 @@ export default function App() {
   const [showNoteModal, setShowNoteModal] = useState(false); 
   const [showProofingModal, setShowProofingModal] = useState(false); 
   const [showSurveyModal, setShowSurveyModal] = useState(false); 
+  const [showEditModal, setShowEditModal] = useState(false); 
+  const [showCustomActionModal, setShowCustomActionModal] = useState(false); 
   
   const [currentNoteAction, setCurrentNoteAction] = useState(null); 
   const [pendingAction, setPendingAction] = useState(null);
-  
+  const [generalNoteInput, setGeneralNoteInput] = useState(''); 
+
   const [history, setHistory] = useState([]);
   const [presets, setPresets] = useState(DEFAULT_PRESETS);
   const [showPresetModal, setShowPresetModal] = useState(false);
@@ -411,22 +486,32 @@ export default function App() {
   const [editingPresetIndex, setEditingPresetIndex] = useState(null);
   const [showConfig, setShowConfig] = useState(false);
   
-  // FIX: Laad naam uit localStorage zodat deze niet reset bij refresh
   const [activeRecipeName, setActiveRecipeName] = useState(() => {
      return localStorage.getItem('desem_active_recipe_name') || "Mijn Desem";
   });
 
+  // Init Config with fallback to defaults preference if available
   const [config, setConfig] = useState(() => {
     const savedConfig = localStorage.getItem('desem_default_config');
-    return savedConfig ? JSON.parse(savedConfig) : {
+    const defaultStarterType = localStorage.getItem('desem_pref_starterType') || 'stiff';
+    
+    if (savedConfig) return JSON.parse(savedConfig);
+    
+    return {
         targetWeight: 1000, hydration: 68, inoculation: 20, salt: 2,
         wholeWheatPerc: 10, speltPerc: 0, wheatPerc: 90, 
-        starterType: 'stiff', starterBuffer: 12 
+        starterType: defaultStarterType, starterBuffer: 12 
     };
   });
 
   const [customStartTime, setCustomStartTime] = useState(toDateTimeLocal(new Date()));
-  const [ambientTemp, setAmbientTemp] = useState(21);
+  const [ambientTemp, setAmbientTemp] = useState(() => {
+      return parseFloat(localStorage.getItem('desem_pref_temp')) || 21;
+  });
+
+  // Settings State
+  const [defaultTemp, setDefaultTemp] = useState(() => parseFloat(localStorage.getItem('desem_pref_temp')) || 21);
+  const [defaultStarterType, setDefaultStarterType] = useState(() => localStorage.getItem('desem_pref_starterType') || 'stiff');
 
   // Initial Load
   useEffect(() => {
@@ -439,7 +524,8 @@ export default function App() {
       if (parsed.status === 'active') {
         setActiveSession(parsed);
         setView('tracker');
-        setAmbientTemp(parsed.temperature || 21);
+        // Only override temp if session has it, otherwise keep default
+        if(parsed.temperature) setAmbientTemp(parsed.temperature);
         setCustomStartTime(toDateTimeLocal(new Date(parsed.startTime)));
       }
     }
@@ -467,8 +553,11 @@ export default function App() {
 
   // Handlers
   const handleNavClick = (targetView) => {
-    // FIX: Waarschuwing verwijderd. Je kunt nu vrij wisselen.
     setView(targetView);
+  };
+
+  const handleSettingsClick = () => {
+      setView('settings');
   };
 
   const saveToHistory = (completedSession) => {
@@ -501,6 +590,71 @@ export default function App() {
     setActiveSession(resumedSession); 
     setView('tracker');
   };
+
+  // GENERAL NOTE HANDLERS
+  const handleAddGeneralNote = () => {
+      if (!viewingSession || !generalNoteInput.trim()) return;
+      const currentNotes = viewingSession.generalNotes || [];
+      const updatedSession = {
+          ...viewingSession,
+          generalNotes: [...currentNotes, generalNoteInput.trim()]
+      };
+      setViewingSession(updatedSession);
+      saveToHistory(updatedSession);
+      setGeneralNoteInput('');
+  };
+
+  const handleDeleteGeneralNote = (index) => {
+      if (!viewingSession) return;
+      const currentNotes = viewingSession.generalNotes || [];
+      const updatedNotes = currentNotes.filter((_, i) => i !== index);
+      const updatedSession = { ...viewingSession, generalNotes: updatedNotes };
+      setViewingSession(updatedSession);
+      saveToHistory(updatedSession);
+  };
+
+  // DATA MANAGEMENT - JSON IMPORT
+  const handleImportData = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          try {
+              const data = JSON.parse(event.target.result);
+              if (confirm("Dit overschrijft je huidige geschiedenis en recepten. Weet je het zeker?")) {
+                  if (data.history) { setHistory(data.history); localStorage.setItem('desem_history', JSON.stringify(data.history)); }
+                  if (data.presets) { setPresets(data.presets); localStorage.setItem('desem_presets', JSON.stringify(data.presets)); }
+                  if (data.config) { setConfig(data.config); }
+                  alert("Data succesvol geïmporteerd!");
+              }
+          } catch (err) {
+              alert("Fout bij importeren bestand.");
+          }
+      };
+      reader.readAsText(file);
+  };
+
+  // SETTINGS HANDLERS
+  const handleApplySettings = () => {
+      // 1. Save to Local Storage (Persist for future)
+      localStorage.setItem('desem_pref_temp', defaultTemp);
+      localStorage.setItem('desem_pref_starterType', defaultStarterType);
+      
+      // 2. Apply to Current State (Immediate update)
+      setAmbientTemp(parseFloat(defaultTemp));
+      setConfig(prev => ({...prev, starterType: defaultStarterType}));
+
+      // 3. Navigate back
+      setView('setup');
+  };
+
+  const handleResetApp = () => {
+      if(confirm("LET OP: Dit wist ALLES (geschiedenis, recepten, instellingen). Dit kan niet ongedaan worden gemaakt. Doorgaan?")) {
+          localStorage.clear();
+          window.location.reload();
+      }
+  };
+
 
   // RECEPTEN LOGICA
   const loadPreset = (presetConfig, presetName, index, isEdit = false) => {
@@ -661,17 +815,28 @@ export default function App() {
     setView('report'); 
     setActiveTimer(null);
   };
+
+  // Update history item
+  const updateSessionAnalysis = (updatedData) => {
+     if (!viewingSession) return;
+     const updatedSession = { ...viewingSession, analysis: updatedData };
+     setViewingSession(updatedSession);
+     saveToHistory(updatedSession);
+     setShowEditModal(false);
+  };
   
-  const logAction = (actionName, setTimerMinutes = 0, customTime = null, force = false) => {
-    if (activeTimer && !force) {
+  // LOG ACTION LOGIC
+  const logAction = (actionName, setTimerMinutes = 0, customTime = null, force = false, stopTimer = true) => {
+    if (activeTimer && !force && stopTimer) {
         const isBulkResting = activeTimer.action === "Rest Bulkrijs";
+        // Alleen bulk rest negeren als we dat specifiek willen (bijv coil fold)
         const isInstantAction = setTimerMinutes === 0 || INSTANT_ACTIONS.includes(actionName);
 
         if (new Date() >= activeTimer.targetTime) {
              setActiveTimer(null); 
         } 
         else if (isBulkResting && isInstantAction) {
-             // OK
+             // OK, timer loopt door
         }
         else if (!customTime && !INSTANT_ACTIONS.includes(actionName)) {
              setPendingAction({ actionName, setTimerMinutes });
@@ -699,15 +864,22 @@ export default function App() {
         setShowProofingModal(true);
         setActiveTimer(null); 
     }
+    // Specifieke logica voor Mixen & Kneden -> Lamineren Timer
+    else if (actionName === "Mixen & Kneden") {
+        const target = new Date();
+        target.setMinutes(target.getMinutes() + 15);
+        setActiveTimer({ targetTime: target, label: "Wachten op Lamineren", action: "Mixen & Kneden" });
+    }
     else if (setTimerMinutes > 0 && !customTime) {
       const target = new Date();
       target.setMinutes(target.getMinutes() + setTimerMinutes);
       setActiveTimer({ targetTime: target, label: `Wachten na ${finalActionName}`, action: finalActionName });
-    } else if (force) {
+    } else if (force && stopTimer) {
         setActiveTimer(null);
     }
     
     setShowManualLog(false);
+    setShowCustomActionModal(false);
   };
 
   const confirmPhaseChange = () => {
@@ -827,6 +999,57 @@ export default function App() {
   const calculateRemainder = (current, others) => Math.max(0, 100 - others);
 
   // --- VIEWS ---
+
+  const renderSettings = () => (
+      <div className="pb-32 space-y-6 p-4 max-w-md mx-auto">
+          <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-4">
+              <h3 className="font-bold text-stone-700 mb-4 flex items-center gap-2 text-lg"><Settings className="w-5 h-5 text-amber-600"/> Data Beheer</h3>
+              
+              <div className="space-y-3">
+                 <button onClick={() => exportData(history, presets, config)} className="w-full bg-stone-50 border border-stone-200 text-stone-700 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-stone-100">
+                    <Download className="w-4 h-4"/> Download Backup (JSON)
+                 </button>
+                 <label className="w-full bg-stone-50 border border-stone-200 text-stone-700 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-stone-100 cursor-pointer">
+                    <Upload className="w-4 h-4"/> Herstel Backup (JSON)
+                    <input type="file" accept=".json" className="hidden" onChange={handleImportData} />
+                 </label>
+              </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-4">
+               <h3 className="font-bold text-stone-700 mb-4 flex items-center gap-2 text-lg"><Settings className="w-5 h-5 text-amber-600"/> Standaardwaarden</h3>
+               
+               <div className="mb-4">
+                  <div className="flex justify-between items-center mb-1">
+                      <label className="text-sm font-bold text-stone-600">Standaard Temperatuur (°C)</label>
+                      <span className="font-mono font-bold">{defaultTemp}°C</span>
+                  </div>
+                  <input type="range" min="15" max="30" step="0.5" value={defaultTemp} onChange={(e) => setDefaultTemp(e.target.value)} className="w-full accent-amber-600 h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer" />
+               </div>
+
+               <div className="mb-6">
+                  <label className="text-sm font-bold text-stone-600 mb-2 block">Standaard Starter Type</label>
+                  <div className="flex gap-2">
+                      <button onClick={() => setDefaultStarterType('stiff')} className={`flex-1 py-2 text-sm font-bold rounded-lg border transition-all ${defaultStarterType === 'stiff' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-white text-stone-500 border-stone-200'}`}>Stiff</button>
+                      <button onClick={() => setDefaultStarterType('liquid')} className={`flex-1 py-2 text-sm font-bold rounded-lg border transition-all ${defaultStarterType === 'liquid' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-white text-stone-500 border-stone-200'}`}>Liquid</button>
+                  </div>
+               </div>
+
+               <button onClick={handleApplySettings} className="w-full bg-green-600 text-white font-bold py-3 rounded-xl shadow-md flex items-center justify-center gap-2 hover:bg-green-700 transition-colors">
+                   <Check className="w-5 h-5" /> Opslaan & Toepassen
+               </button>
+               <p className="text-xs text-stone-400 mt-2 text-center">Dit past de instellingen ook direct toe op je huidige recept.</p>
+          </div>
+
+          <div className="bg-red-50 rounded-xl border border-red-100 p-4">
+               <h3 className="font-bold text-red-800 mb-2 flex items-center gap-2"><AlertTriangle className="w-4 h-4"/> Gevaarlijke Zone</h3>
+               <button onClick={handleResetApp} className="w-full bg-white border border-red-200 text-red-600 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-50">
+                   <Trash2 className="w-4 h-4"/> Reset Volledige App
+               </button>
+               <p className="text-xs text-red-400 mt-2 text-center">Dit wist alle geschiedenis en instellingen definitief.</p>
+          </div>
+      </div>
+  );
 
   const renderSetup = () => {
     const totalPerc = config.wheatPerc + config.wholeWheatPerc + config.speltPerc;
@@ -1010,6 +1233,7 @@ export default function App() {
     
     // Check of bulkrijs klaar is om balk te verbergen
     const isBulkFinished = bulkData && bulkData.isFinished;
+    const hasStartedMixing = activeSession.logs.some(l => l.action === 'Mixen & Kneden' || l.action === 'Mixen Compleet');
 
     return (
       <div className="pb-32 p-4 max-w-md mx-auto space-y-6">
@@ -1027,6 +1251,9 @@ export default function App() {
              </button>
            </div>
            
+           {/* FIX: Alleen starter tracker tonen als nog NIET gemengd is */}
+           {!hasStartedMixing && <StarterTracker logs={activeSession.logs} />}
+           
            <PhaseTimeline logs={activeSession.logs} />
 
            <PhaseTracker 
@@ -1037,7 +1264,7 @@ export default function App() {
            />
 
            {/* FIX: Alleen tonen als bulk nog NIET klaar is */}
-           {!isBulkFinished && (
+           {!isBulkFinished && hasStartedMixing && (
                <div className="bg-stone-50 rounded-lg p-3 border border-stone-100">
                   <div className="flex justify-between items-center mb-2">
                      <span className="text-xs font-bold text-stone-500 uppercase flex items-center gap-1"><Hourglass className="w-3 h-3"/> Totale Bulkrijs</span>
@@ -1146,6 +1373,13 @@ export default function App() {
           </div>
         )}
 
+        {showCustomActionModal && (
+            <CustomActionModal 
+                onClose={() => setShowCustomActionModal(false)}
+                onLog={logAction}
+            />
+        )}
+
         <div><SectionHeader title="Voorbereiding" />
           <div className="grid grid-cols-2 gap-3">
             <ActionButton 
@@ -1161,49 +1395,68 @@ export default function App() {
 
         <div><SectionHeader title="Het Deeg" />
           <div className="grid grid-cols-2 gap-3">
-            <ActionButton label="Mixen Compleet" icon={<div className="w-6 h-6 rounded-full bg-current"></div>} activeTimer={activeTimer} onStopTimer={() => setShowTimerModal(true)} subtext="Start Bulkrijs" onClick={() => logAction("Mixen Compleet", 30)} />
+            <ActionButton 
+                label="Mixen & Kneden" 
+                icon={<div className="w-6 h-6 rounded-full bg-current"></div>} 
+                activeTimer={activeTimer} 
+                onStopTimer={() => setShowTimerModal(true)} 
+                subtext="Start Bulk & Lam." 
+                onClick={() => logAction("Mixen & Kneden", 15)} 
+            />
             <ActionButton label="Lamineren" icon={<FileText />} activeTimer={activeTimer} onStopTimer={() => setShowTimerModal(true)} subtext="30 min rust" onClick={() => logAction("Lamineren", 30)} />
           </div>
         </div>
 
-        <div><SectionHeader title="Bulkrijs & Vormen" />
-          <div className="grid grid-cols-2 gap-3">
-            <ActionButton 
-                label="Stretch & Fold" 
-                icon={<ChevronRight className="rotate-[-45deg]"/>} 
-                activeTimer={activeTimer} 
-                onStopTimer={() => logAction("Stretch & Fold", 30)} 
-                subtext="30 min rust" 
-                onClick={() => logAction("Stretch & Fold", 30)} 
-            />
-            <ActionButton 
-                label="Coil Fold" 
-                icon={<span className="font-serif text-2xl font-bold">S</span>} 
-                activeTimer={activeTimer} 
-                onStopTimer={() => logAction("Coil Fold", 0)} 
-                subtext="Momentopname" 
-                onClick={() => logAction("Coil Fold", 0)} 
-            />
-             <ActionButton 
-              label="Rest Bulkrijs" 
-              icon={<Hourglass />} 
-              activeTimer={activeTimer} 
-              onStopTimer={() => setShowTimerModal(true)} 
-              subtext={`Nog ${remainingMinutesTotal}m (schatting)`} 
-              onClick={() => logAction("Rest Bulkrijs", remainingMinutesTotal)} 
-            />
-          </div>
-          
-          <div className="w-full border-t border-stone-200 my-4"></div>
+        {hasStartedMixing && (
+        <div className="animate-in fade-in duration-500">
+            <SectionHeader title="Bulkrijs & Vormen" />
+            <div className="grid grid-cols-2 gap-3">
+                <ActionButton 
+                    label="Stretch & Fold" 
+                    icon={<ChevronRight className="rotate-[-45deg]"/>} 
+                    activeTimer={activeTimer} 
+                    onStopTimer={() => logAction("Stretch & Fold", 30)} 
+                    subtext="30 min rust" 
+                    onClick={() => logAction("Stretch & Fold", 30)} 
+                />
+                <ActionButton 
+                    label="Coil Fold" 
+                    icon={<span className="font-serif text-2xl font-bold">S</span>} 
+                    activeTimer={activeTimer} 
+                    onStopTimer={() => {}} // Coil fold stops timer niet
+                    subtext="Timer loopt door" 
+                    onClick={() => logAction("Coil Fold", 0, null, false, false)} 
+                />
+                <ActionButton 
+                    label="Rest Bulkrijs" 
+                    icon={<Hourglass />} 
+                    activeTimer={activeTimer} 
+                    onStopTimer={() => setShowTimerModal(true)} 
+                    subtext={`Nog ${remainingMinutesTotal}m`} 
+                    onClick={() => logAction("Rest Bulkrijs", remainingMinutesTotal)} 
+                />
+                <ActionButton 
+                    label="Vrije Invoer" 
+                    icon={<Keyboard />} 
+                    activeTimer={activeTimer} 
+                    onStopTimer={() => setShowTimerModal(true)} 
+                    subtext="Eigen actie" 
+                    onClick={() => setShowCustomActionModal(true)} 
+                />
+            </div>
+            
+            <div className="w-full border-t border-stone-200 my-4"></div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <ActionButton label="Preshape" icon={<div className="w-6 h-6 rounded-full border-2 border-dashed border-current"></div>} activeTimer={activeTimer} onStopTimer={() => setShowTimerModal(true)} subtext="20 min rust" onClick={() => logAction("Preshape", 20)} />
-            <ActionButton label="Final Shape" icon={<div className="w-6 h-6 rounded-full border-2 border-current bg-stone-100"></div>} activeTimer={activeTimer} onStopTimer={() => setShowTimerModal(true)} onClick={() => logAction("Final Shape")} />
-          </div>
+            <div className="grid grid-cols-2 gap-3">
+                <ActionButton label="Preshape" icon={<div className="w-6 h-6 rounded-full border-2 border-dashed border-current"></div>} activeTimer={activeTimer} onStopTimer={() => setShowTimerModal(true)} subtext="20 min rust" onClick={() => logAction("Preshape", 20)} />
+                <ActionButton label="Final Shape" icon={<div className="w-6 h-6 rounded-full border-2 border-current bg-stone-100"></div>} activeTimer={activeTimer} onStopTimer={() => setShowTimerModal(true)} onClick={() => logAction("Final Shape")} />
+            </div>
         </div>
+        )}
 
         <div><SectionHeader title="Afronden" />
-           <div className="grid grid-cols-1 gap-3">
+           <div className="grid grid-cols-2 gap-3">
+             <ActionButton label="In Koelkast (Pauze)" icon={<Snowflake />} activeTimer={activeTimer} onStopTimer={() => setShowTimerModal(true)} subtext="Retarderen" onClick={() => logAction("In Koelkast (Pauze)", 0)} />
              <ActionButton label="Oven In" icon={<span>🔥</span>} activeTimer={activeTimer} onStopTimer={() => setShowTimerModal(true)} subtext="45 min bakken" onClick={() => logAction("Oven In", 45)} />
            </div>
         </div>
@@ -1266,8 +1519,8 @@ export default function App() {
         acc.inoculation += (config.inoculation || 0);
         acc.stretch += getLogCount(logs, 'Stretch & Fold');
         acc.coil += getLogCount(logs, 'Coil Fold');
-        acc.autolyse += getDurationBetween(logs, 'Autolyse Start', 'Mixen Compleet');
-        acc.starterAge += getDurationBetween(logs, 'Starter Gevoed', 'Mixen Compleet');
+        acc.autolyse += getDurationBetween(logs, 'Autolyse Start', 'Mixen & Kneden');
+        acc.starterAge += getDurationBetween(logs, 'Starter Gevoed', 'Mixen & Kneden');
         acc.bulk += (calculateBulkTime(logs, h.endTime)?.minutes || 0);
         acc.cold += getDurationBetween(logs, 'Cold Proof Start', 'Oven In');
         acc.room += getDurationBetween(logs, 'Room Proof Start', 'Oven In');
@@ -1315,9 +1568,9 @@ export default function App() {
                             <th className="p-3">Auto (m)</th>
                             <th className="p-3">S&F</th>
                             <th className="p-3">Coil</th>
-                            <th className="p-3">Bulk (m)</th>
-                            <th className="p-3">Cold (m)</th>
-                            <th className="p-3">Room (m)</th>
+                            <th className="p-3">Bulk</th>
+                            <th className="p-3">Cold</th>
+                            <th className="p-3">Room</th>
                             {/* RESULTAAT VELDEN */}
                             <th className="p-3 text-right">Score</th>
                             {/* ANALYSE VELDEN */}
@@ -1337,8 +1590,8 @@ export default function App() {
                             const bulk = calculateBulkTime(logs, h.endTime)?.minutes || 0;
                             const sf = getLogCount(logs, 'Stretch & Fold');
                             const coil = getLogCount(logs, 'Coil Fold');
-                            const auto = getDurationBetween(logs, 'Autolyse Start', 'Mixen Compleet');
-                            const starterAge = getDurationBetween(logs, 'Starter Gevoed', 'Mixen Compleet');
+                            const auto = getDurationBetween(logs, 'Autolyse Start', 'Mixen & Kneden');
+                            const starterAge = getDurationBetween(logs, 'Starter Gevoed', 'Mixen & Kneden');
                             const cold = getDurationBetween(logs, 'Cold Proof Start', 'Oven In');
                             const room = getDurationBetween(logs, 'Room Proof Start', 'Oven In');
                             const rating = h.analysis?.rating || 0;
@@ -1346,19 +1599,25 @@ export default function App() {
 
                             return (
                                 <tr key={h.id}>
-                                    <td className="p-3 font-bold text-stone-700 sticky left-0 bg-white shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">{new Date(h.startTime).toLocaleDateString([],{day:'numeric', month:'numeric'})}</td>
+                                    {/* FIX: Klikbare datum cel */}
+                                    <td 
+                                        onClick={() => { setViewingSession(h); setView('report'); }}
+                                        className="p-3 font-bold text-amber-600 underline cursor-pointer sticky left-0 bg-white shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] hover:text-amber-800"
+                                    >
+                                        {new Date(h.startTime).toLocaleDateString([],{day:'numeric', month:'numeric'})}
+                                    </td>
                                     {/* INPUT VELDEN */}
                                     <td className={`p-3 ${getColorClass(config.hydration, avgs?.hydration)}`}>{config.hydration}%</td>
                                     <td className={`p-3 ${getColorClass(config.inoculation, avgs?.inoculation)}`}>{config.inoculation}%</td>
                                     <td className={`p-3 ${getColorClass(h.temperature, avgs?.temp)}`}>{h.temperature}°</td>
                                     {/* PROCES VELDEN */}
-                                    <td className={`p-3 ${getColorClass(starterAge, avgs?.starterAge)}`}>{starterAge}</td>
-                                    <td className={`p-3 ${getColorClass(auto, avgs?.autolyse)}`}>{auto}</td>
+                                    <td className={`p-3 ${getColorClass(starterAge, avgs?.starterAge)}`}>{formatDurationHM(starterAge)}</td>
+                                    <td className={`p-3 ${getColorClass(auto, avgs?.autolyse)}`}>{formatDurationHM(auto)}</td>
                                     <td className={`p-3 ${getColorClass(sf, avgs?.stretch)}`}>{sf}</td>
                                     <td className={`p-3 ${getColorClass(coil, avgs?.coil)}`}>{coil}</td>
-                                    <td className={`p-3 ${getColorClass(bulk, avgs?.bulk)}`}>{bulk}</td>
-                                    <td className={`p-3 ${getColorClass(cold, avgs?.cold)}`}>{cold}</td>
-                                    <td className={`p-3 ${getColorClass(room, avgs?.room)}`}>{room}</td>
+                                    <td className={`p-3 ${getColorClass(bulk, avgs?.bulk)}`}>{formatDurationHM(bulk)}</td>
+                                    <td className={`p-3 ${getColorClass(cold, avgs?.cold)}`}>{formatDurationHM(cold)}</td>
+                                    <td className={`p-3 ${getColorClass(room, avgs?.room)}`}>{formatDurationHM(room)}</td>
                                     {/* RESULTAAT VELDEN */}
                                     <td className={`p-3 text-right font-bold ${getColorClass(rating, avgs?.rating, true)}`}>{rating || '-'}</td>
                                     {/* ANALYSE VELDEN */}
@@ -1409,8 +1668,12 @@ export default function App() {
         </div>
         
         {/* EVALUATIE BLOK */}
-        {analysis.rating && (
-            <div className="mb-6 bg-green-50 rounded-xl p-4 border border-green-100">
+        <div className="mb-6 bg-green-50 rounded-xl p-4 border border-green-100 relative">
+             <button onClick={() => setShowEditModal(true)} className="absolute top-4 right-4 text-green-700 font-bold text-xs flex items-center gap-1 bg-white px-2 py-1 rounded shadow-sm hover:bg-green-100">
+                <Edit3 className="w-3 h-3"/> Bewerk
+             </button>
+             {analysis.rating ? (
+                <>
                 <h3 className="font-bold text-green-800 flex items-center gap-2 mb-3"><ClipboardList className="w-4 h-4"/> Evaluatie: {analysis.rating}/10</h3>
                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs">
                      <div className="text-stone-500">Starter: <span className="font-bold text-stone-700">{analysis.starterRise}</span></div>
@@ -1420,15 +1683,45 @@ export default function App() {
                      <div className="text-stone-500">Korst: <span className="font-bold text-stone-700">{analysis.crust}</span></div>
                      <div className="text-stone-500">Crumb: <span className="font-bold text-stone-700">{analysis.crumb}</span></div>
                 </div>
-            </div>
-        )}
+                </>
+             ) : (
+                <div className="text-center py-4">
+                    <p className="text-green-800 font-bold mb-2">Nog geen evaluatie</p>
+                    <button onClick={() => setShowEditModal(true)} className="text-xs bg-green-600 text-white px-4 py-2 rounded-lg font-bold">Evaluatie Invullen</button>
+                </div>
+             )}
+        </div>
 
-        <div className="mb-8 print:mb-4">
+        <div className="mb-6 print:mb-4">
            <h2 className="text-xl font-bold text-stone-800 mb-4 flex items-center gap-2 print:text-lg"><ImageIcon className="w-5 h-5 text-amber-600" /> Resultaat</h2>
            <div className="grid grid-cols-2 gap-4 mb-4">
              {viewingSession.photos && viewingSession.photos.map((img, idx) => <img key={idx} src={img} className="w-full h-40 object-cover rounded-lg shadow-sm print:h-24 print:object-contain print:shadow-none" />)}
            </div>
            <label className="block w-full cursor-pointer print:hidden"><input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} /><div className="w-full bg-stone-100 text-stone-600 font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-stone-200 transition-colors"><Camera className="w-5 h-5" /> Foto Toevoegen</div></label>
+        </div>
+
+        {/* ALGEMENE NOTITIES SECTIE */}
+        <div className="mb-8 print:mb-4">
+            <h2 className="text-xl font-bold text-stone-800 mb-3 flex items-center gap-2 print:text-lg"><MessageSquare className="w-5 h-5 text-amber-600" /> Notities</h2>
+            <div className="space-y-2 mb-3">
+                {viewingSession.generalNotes && viewingSession.generalNotes.map((note, idx) => (
+                    <div key={idx} className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 flex justify-between items-start group">
+                        <p className="text-sm text-stone-700 whitespace-pre-wrap">{note}</p>
+                        <button onClick={() => handleDeleteGeneralNote(idx)} className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity print:hidden"><X className="w-4 h-4"/></button>
+                    </div>
+                ))}
+            </div>
+            <div className="flex gap-2 print:hidden">
+                <input 
+                    type="text" 
+                    value={generalNoteInput} 
+                    onChange={(e) => setGeneralNoteInput(e.target.value)}
+                    placeholder="Schrijf een opmerking..." 
+                    className="flex-1 p-2 border border-stone-200 rounded-lg text-sm"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddGeneralNote()}
+                />
+                <button onClick={handleAddGeneralNote} disabled={!generalNoteInput.trim()} className="bg-stone-800 text-white px-4 py-2 rounded-lg font-bold text-sm disabled:opacity-50">Toevoegen</button>
+            </div>
         </div>
         
         <div className="mb-8 bg-amber-50 rounded-lg p-6 border border-amber-100 print:bg-white print:border-none print:p-0 print:mb-4">
@@ -1470,19 +1763,33 @@ export default function App() {
              ))}</tbody>
           </table>
         </div>
+
+        {showEditModal && (
+            <SurveyModal 
+                onClose={() => setShowEditModal(false)}
+                onComplete={updateSessionAnalysis}
+                initialData={analysis}
+            />
+        )}
       </div>
     );
   };
 
   return (
     <div className="min-h-screen bg-stone-50 font-sans text-stone-800">
-      <header className="bg-white p-4 shadow-sm border-b border-stone-200 sticky top-0 z-30 print:hidden">
+      <header className="bg-white p-4 shadow-sm border-b border-stone-200 sticky top-0 z-30 print:hidden flex justify-between items-center">
+        <div className="w-8"></div> {/* Spacer voor centrering */}
         <h1 className="text-xl font-bold text-amber-700 flex items-center gap-2 justify-center">
            {view === 'setup' && <><Calculator className="w-6 h-6"/> Desem Setup</>}
            {view === 'tracker' && <><LayoutDashboard className="w-6 h-6"/> Active Tracker</>}
            {(view === 'history' || view === 'report') && <><BookOpen className="w-6 h-6"/> Mijn Logboek</>}
            {view === 'stats' && <><BarChart3 className="w-6 h-6"/> Analyse</>}
+           {view === 'settings' && <><Settings className="w-6 h-6"/> Instellingen</>}
         </h1>
+        {/* FIX: Instellingen knop rechtsboven */}
+        <button onClick={handleSettingsClick} className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-600 transition-colors">
+            <Settings className="w-6 h-6"/>
+        </button>
       </header>
       
       <main>
@@ -1491,6 +1798,7 @@ export default function App() {
         {view === 'history' && renderHistory()}
         {view === 'report' && renderReport()}
         {view === 'stats' && renderStats()}
+        {view === 'settings' && renderSettings()}
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 p-2 pb-safe flex justify-around z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] print:hidden">
@@ -1511,9 +1819,45 @@ export default function App() {
 
 // --- SUB COMPONENTS ---
 
-function SurveyModal({ onClose, onComplete }) {
+function CustomActionModal({ onClose, onLog }) {
+    const [name, setName] = useState('');
+    const [timer, setTimer] = useState(0);
+    const [time, setTime] = useState(toDateTimeLocal(new Date()));
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+             <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl space-y-4">
+                 <div className="flex justify-between items-center mb-2">
+                     <h3 className="font-bold text-lg text-stone-800">Vrije Invoer</h3>
+                     <button onClick={onClose}><X className="w-5 h-5 text-stone-400"/></button>
+                 </div>
+                 
+                 <div>
+                     <label className="block text-sm font-bold text-stone-600 mb-1">Naam Actie</label>
+                     <input type="text" value={name} onChange={e=>setName(e.target.value)} placeholder="Bijv. Extra vouwen" className="w-full p-2 border rounded-lg" autoFocus />
+                 </div>
+                 
+                 <div>
+                     <label className="block text-sm font-bold text-stone-600 mb-1">Timer instellen (minuten)</label>
+                     <input type="number" value={timer} onChange={e=>setTimer(parseInt(e.target.value))} className="w-full p-2 border rounded-lg" />
+                 </div>
+
+                 <div>
+                     <label className="block text-sm font-bold text-stone-600 mb-1">Tijd</label>
+                     <input type="datetime-local" value={time} onChange={e=>setTime(e.target.value)} className="w-full p-2 border rounded-lg" />
+                 </div>
+
+                 <button onClick={() => onLog(name, timer, time)} disabled={!name} className="w-full bg-amber-600 text-white font-bold py-3 rounded-lg mt-2 disabled:opacity-50">
+                     Toevoegen
+                 </button>
+             </div>
+        </div>
+    );
+}
+
+function SurveyModal({ onClose, onComplete, initialData }) {
     const [step, setStep] = useState(1);
-    const [data, setData] = useState({
+    const [data, setData] = useState(initialData || {
         starterRise: '',
         bulkRise: '',
         doughResult: '',
@@ -1608,7 +1952,10 @@ function SurveyModal({ onClose, onComplete }) {
                             </div>
                         </div>
 
-                        <button onClick={() => setStep(3)} className="w-full bg-stone-800 text-white font-bold py-3 rounded-lg mt-4">Volgende</button>
+                        <div className="flex gap-2">
+                             <button onClick={() => setStep(1)} className="flex-1 bg-stone-100 text-stone-600 font-bold py-3 rounded-lg mt-4">Terug</button>
+                             <button onClick={() => setStep(3)} className="flex-1 bg-stone-800 text-white font-bold py-3 rounded-lg mt-4">Volgende</button>
+                        </div>
                     </div>
                 )}
 
@@ -1631,9 +1978,12 @@ function SurveyModal({ onClose, onComplete }) {
                             </div>
                         </div>
 
-                        <button onClick={() => onComplete(data)} className="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg mt-4 flex items-center justify-center gap-2">
-                            <Save className="w-5 h-5"/> Opslaan & Afronden
-                        </button>
+                         <div className="flex gap-2">
+                             <button onClick={() => setStep(2)} className="flex-1 bg-stone-100 text-stone-600 font-bold py-3 rounded-lg mt-4">Terug</button>
+                             <button onClick={() => onComplete(data)} className="flex-[2] bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg mt-4 flex items-center justify-center gap-2">
+                                <Save className="w-5 h-5"/> Opslaan & Afronden
+                            </button>
+                        </div>
                     </div>
                 )}
              </div>
@@ -1646,7 +1996,7 @@ function ManualLogger({ onClose, onLog }) {
   const [time, setTime] = useState(toDateTimeLocal(new Date()));
   return (
     <div className="space-y-4">
-      <div><label className="block text-sm font-bold text-stone-600 mb-1">Actie</label><select className="w-full p-2 border rounded-lg" value={action} onChange={e=>setAction(e.target.value)}><option>Starter Gevoed</option><option>Autolyse Start</option><option>Mixen Compleet</option><option>Lamineren</option><option>Stretch & Fold</option><option>Coil Fold</option><option>Preshape</option><option>Final Shape</option><option>In Koelkast</option><option>Oven In</option><option>Cold Proof Start</option><option>Room Proof Start</option></select></div>
+      <div><label className="block text-sm font-bold text-stone-600 mb-1">Actie</label><select className="w-full p-2 border rounded-lg" value={action} onChange={e=>setAction(e.target.value)}><option>Starter Gevoed</option><option>Autolyse Start</option><option>Mixen & Kneden</option><option>Lamineren</option><option>Stretch & Fold</option><option>Coil Fold</option><option>Preshape</option><option>Final Shape</option><option>In Koelkast</option><option>Oven In</option><option>Cold Proof Start</option><option>Room Proof Start</option></select></div>
       <div><label className="block text-sm font-bold text-stone-600 mb-1">Tijd</label><input type="datetime-local" value={time} onChange={e=>setTime(e.target.value)} className="w-full p-2 border rounded-lg" /></div>
       <div className="flex gap-2 pt-2"><button onClick={onClose} className="flex-1 py-2 text-stone-500 font-bold bg-stone-100 rounded-lg">Annuleren</button><button onClick={()=>onLog(action,0,time)} className="flex-1 py-2 bg-amber-600 text-white font-bold rounded-lg">Toevoegen</button></div>
     </div>
